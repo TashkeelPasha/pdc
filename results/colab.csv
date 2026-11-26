@@ -1,0 +1,15 @@
+# Colab free tier, 2026-11-26: 2 vCPUs, 12 GB RAM, no GPU granted, Ubuntu 24.04, gcc 13.3, Open MPI.
+# Input: data/urdu_2e24.bin — 2^24 samples (17.5 min) of real Urdu speech from 132 YODAS ur000 clips.
+# All ranks share one VM ("1 node"); scaling curves for the report come from the group laptops.
+RESULT,seq,24,1,1,4.950632
+RESULT,seq,24,1,1,6.061184
+RESULT,omp,24,1,1,7.770639
+RESULT,omp,24,1,1,8.269357
+RESULT,omp,24,1,2,8.211238
+RESULT,omp,24,1,2,6.672411
+RESULT,mpi,24,1,1,7.503512,1.317522
+RESULT,mpi,24,1,1,6.169794,1.165070
+RESULT,mpi,24,2,1,6.929618,1.259338
+RESULT,mpi,24,2,1,5.201558,0.889660
+RESULT,mpi,24,4,1,6.826308,1.073244
+RESULT,mpi,24,4,1,5.264714,1.036878
