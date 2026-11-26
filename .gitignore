@@ -1,0 +1,7 @@
+build/
+data/
+results/*.png
+__pycache__/
+*.exe
+*.bin
+*.o
