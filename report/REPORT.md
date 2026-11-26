@@ -188,6 +188,15 @@ systems therefore parallelize **across** frames, calls and files (throughput), n
 inside one small FFT (latency). Our batched-corpus framing (one rank per audio file,
 threads across frames) is the industrially realistic use of this project's code.
 
+### 5.7 Bonus row: a GPU library on the same signal
+
+cuFFT (via CuPy) on Colab's Tesla T4 transforms the same 2^24-point Urdu signal in
+**29.0 ms** (max rel. error vs numpy 4.4e-16) — 68× our sequential C and 21× our best
+hybrid run. This is not a like-for-like comparison (a decade-tuned vendor library on
+specialised hardware vs our from-scratch CPU code); it is the industry context: FFTs
+at scale run on GPUs, and the four-step structure we implemented — batched local FFTs
+separated by transposes — is the same structure cuFFTMp uses across multiple GPUs.
+
 ## 6. Analysis
 
 **Speedup / efficiency / Amdahl.** S(p) = T_seq/T_p, E(p) = S(p)/p, plotted in
