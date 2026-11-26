@@ -31,7 +31,7 @@
 #define WIN 400                 /* 25 ms @ 16 kHz */
 #define HOP 160                 /* 10 ms          */
 #define NFFT 512                /* zero-padded radix-2 size */
-#define MAX_FILES 100000
+#define MAX_FILES 1000000
 #define TAG_ASK 1
 #define TAG_JOB 2
 
@@ -107,8 +107,9 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &P);
     if (argc < 2) { if (!rank) fprintf(stderr, "usage: mpiexec -n <P> %s <filelist.txt>\n", argv[0]); MPI_Finalize(); return 1; }
 
-    /* every rank loads the file list (small) */
-    static char names[MAX_FILES][260];
+    /* every rank loads the file list */
+    char (*names)[260] = malloc((size_t)MAX_FILES * 260);
+    if (!names) { fprintf(stderr, "rank %d: cannot allocate file list\n", rank); MPI_Abort(MPI_COMM_WORLD, 1); }
     int nfiles = 0;
     FILE *fl = fopen(argv[1], "r");
     if (!fl) { if (!rank) fprintf(stderr, "cannot open %s\n", argv[1]); MPI_Finalize(); return 1; }
@@ -165,6 +166,7 @@ int main(int argc, char **argv) {
                files_all, audio_s / 60.0, P, threads, wall, audio_s / wall, chk_all);
         printf("RESULT,spec,%d,%d,%d,%.6f,%.1f\n", files_all, P, threads, wall, audio_s);
     }
+    free(names);
     MPI_Finalize();
     return 0;
 }

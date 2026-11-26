@@ -232,6 +232,30 @@ working sets per frame. One core of this laptop sustains ~280 streams in realtim
 training corpus in under half an hour on one laptop, with MPI extending the same
 dispatcher across machines.
 
+### 5.7b The hero run: 300 hours of audio
+
+To put the engine at production scale, the corpus was multiplied the way ASR training
+pipelines do: 3-way **speed perturbation** at 0.9×/1.0×/1.1× (`tools/augment_corpus.py`,
+the standard Kaldi recipe) tripled the distinct audio to 6,873 clips / 8.6 h, and the
+work list repeats it 35× — **240,555 files = 300.7 hours (1.08 million seconds) of
+16 kHz audio** in one job.
+
+| Config | Wall time | Throughput | Speedup vs 1 core |
+|---|---|---|---|
+| 1 core (measured rate, extrapolated time) | ≈ 64.3 min | 281× realtime | 1.0× |
+| Hybrid 4 × 4 | 13.4 min | 1,342× realtime | 4.8× |
+| Hybrid 8 × 2 | **11.1 min** | **1,623× realtime** | **5.8×** |
+
+The 1-core baseline is extrapolated from the per-core rate *measured* in §5.7 — valid
+because the 240,555 files are independent, so sequential time scales linearly with
+corpus size; the fully measured sequential-vs-parallel comparison is §5.7's table. The
+checksum (−1.765e11) is identical across both hybrid configs. Two things only a long
+run reveals: sustained throughput drops from the 4.5-second burst's 2,265× to 1,623×
+realtime (eleven minutes of all-core load engages the laptop's thermal limits, which a
+short benchmark never meets), and 8×2 beats 4×4 at this scale because the master rank
+dispatches but does not compute — 8×2 fields 7 working ranks (14 threads) against
+4×4's 3 ranks (12 threads).
+
 ### 5.8 Bonus row: a GPU library on the same signal
 
 cuFFT (via CuPy) on Colab's Tesla T4 transforms the same 2^24-point Urdu signal in
