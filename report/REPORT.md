@@ -90,11 +90,26 @@ Method: best of 3 repetitions (5 for the crossover), timing only the transform
 
 ### 5.1 Sequential baseline
 
-<!-- RESULTS:SEQ -->
+| Machine | 2^24 sequential FFT (best of 3) |
+|---|---|
+| Laptop (i7-13620H) | **1.98 s** |
+| Colab free VM | 4.95 s |
+
+(NumPy's optimized library FFT takes ~1.0 s on the same laptop — a useful sanity bound:
+our from-scratch kernel is within 2× of a tuned library.)
 
 ### 5.2 OpenMP scaling (laptop, 2^24)
 
-<!-- RESULTS:OMP -->
+| Threads | Best time | Speedup | Efficiency |
+|---|---|---|---|
+| seq (V1) | 1.982 s | 1.00× | — |
+| 1 | 2.309 s | 0.86× | 0.86 |
+| 2 | 1.356 s | 1.46× | 0.73 |
+| 4 | 0.917 s | 2.16× | 0.54 |
+| 8 | 0.839 s | 2.36× | 0.30 |
+| 10 | 0.796 s | 2.49× | 0.25 |
+| 12 | 0.789 s | 2.51× | 0.21 |
+| 16 | 0.790 s | **2.51×** | 0.16 |
 
 Two effects dominate. First, **parallelization overhead is real and measured**: with
 one thread, V2 is slower than V1 (the flattened loop pays an integer div/mod per
@@ -105,7 +120,25 @@ DRAM; beyond the 10 physical cores the SMT siblings add almost nothing.
 
 ### 5.3 Hybrid four-step (single node, 2^24)
 
-<!-- RESULTS:MPI -->
+| Procs × threads | Workers | Best time | Speedup | Efficiency | Comm share |
+|---|---|---|---|---|---|
+| 1 × 1 | 1 | 2.761 s | 0.72× | 0.72 | 25% |
+| 2 × 1 | 2 | 1.460 s | 1.36× | 0.68 | 30% |
+| 4 × 1 | 4 | 0.932 s | 2.13× | 0.53 | 36% |
+| 8 × 1 | 8 | 0.689 s | 2.88× | 0.36 | 47% |
+| 1 × 8 | 8 | 1.044 s | 1.90× | 0.24 | 58% |
+| 1 × 16 | 16 | 0.909 s | 2.18× | 0.14 | 64% |
+| 2 × 4 | 8 | 0.770 s | 2.57× | 0.32 | 42% |
+| 2 × 8 | 16 | 0.674 s | 2.94× | 0.18 | 47% |
+| **4 × 4** | 16 | **0.608 s** | **3.26×** | 0.20 | 45% |
+
+Three observations. (1) **The hybrid beats pure OpenMP** (3.26× vs 2.51×): the
+four-step's row FFTs walk contiguous 4096-point rows that fit in L2 cache, where V2's
+late stages stride across the whole 256 MiB array. (2) **Balanced procs × threads wins**
+— 4×4 beats both 8×1 (more ranks = more transpose traffic) and 1×16 (one rank's
+transpose is pure serial memcpy, pushing comm share to 64%). (3) **Communication share
+grows with parallelism** (25% → 45%), the fundamental scaling limit that the
+multi-machine run exposes at network speeds.
 
 The hybrid's printed communication share isolates the transposes. Even on one machine
 (ranks communicating through shared memory) the two transposes cost a significant
@@ -131,7 +164,22 @@ larger N, which is the weak-scaling argument for 2^26/2^28.
 
 ### 5.6 Crossover: why real-time speech doesn't parallelize one frame
 
-<!-- RESULTS:CROSSOVER -->
+| log2 N | Signal length | Seq (best of 5) | OMP-16T | Speedup |
+|---|---|---|---|---|
+| 9 | one 32 ms voice frame | 21 µs | 1,560 µs | **0.01× (74× slower)** |
+| 11 | 0.13 s | 95 µs | 1,523 µs | 0.06× |
+| 13 | 0.5 s | 447 µs | 1,944 µs | 0.23× |
+| 15 | 2 s | 2.0 ms | 2.6 ms | 0.79× |
+| 17 | 8 s | 9.4 ms | 5.2 ms | **1.82× — break-even passed** |
+| 19 | 33 s | 43 ms | 13.7 ms | 3.14× |
+| 21 | 2.2 min | 193 ms | 61 ms | **3.17× (peak)** |
+| 23 | 8.7 min | 889 ms | 374 ms | 2.37× |
+| 24 | 17.5 min | 1.92 s | 0.74 s | 2.59× |
+
+Break-even sits between 2^15 and 2^17 (~10^5 points), matching FFTW's published
+guidance that threads need "at least a few thousand data points" per thread. Peak
+speedup lands at 2^19–2^21, where the working set still fits in cache; beyond it the
+memory wall claws speedup back down.
 
 At 512 points — one 20–32 ms voice frame — 16 threads are drastically slower than one:
 the FFT itself takes microseconds while every OpenMP region costs ~2 µs (and an MPI
@@ -143,9 +191,12 @@ threads across frames) is the industrially realistic use of this project's code.
 ## 6. Analysis
 
 **Speedup / efficiency / Amdahl.** S(p) = T_seq/T_p, E(p) = S(p)/p, plotted in
-`results/`. Fitting Amdahl's 1/((1−f)+f/p) to the laptop curve estimates the effective
-serial fraction f (bit-reversal + per-stage overhead + bandwidth saturation acting as
-serialization). <!-- fill fitted f after benchmarks -->
+`results/`. From the measured OpenMP curve, the speedup ceiling of ~2.5× implies an
+effective serial-equivalent fraction of ~0.37 by Amdahl's 1/((1−f)+f/p) as p→∞ —
+but the hybrid's 3.26× on the same machine proves most of that "serial fraction" is
+really memory-bandwidth contention and cache-unfriendly strides, not inherently serial
+code: changing the access pattern (row FFTs) raised the ceiling without changing the
+arithmetic.
 
 **Communication model.** Per transpose each rank sends P−1 blocks of N·16/P² bytes;
 total bytes on the wire ≈ 2·N·16·(P−1)/P per FFT. On one node this is memcpy traffic;

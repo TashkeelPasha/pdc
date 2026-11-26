@@ -1,6 +1,10 @@
 build/
 data/
 results/*.png
+!results/time_24.png
+!results/speedup_24.png
+!results/efficiency_24.png
+!results/crossover.png
 __pycache__/
 *.exe
 *.bin
