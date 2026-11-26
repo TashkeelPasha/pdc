@@ -207,7 +207,32 @@ systems therefore parallelize **across** frames, calls and files (throughput), n
 inside one small FFT (latency). Our batched-corpus framing (one rank per audio file,
 threads across frames) is the industrially realistic use of this project's code.
 
-### 5.7 Bonus row: a GPU library on the same signal
+### 5.7 The batched spectrogram engine: where speech FFTs really scale
+
+`src/spectrogram_engine.c` runs the training-pipeline workload: Whisper-style framing
+(25 ms Hann window, 10 ms hop, 512-point FFT) over 2,291 real Urdu clips = 170.7 min of
+audio. Rank 0 dispatches files dynamically over MPI (clips vary in length, so dynamic
+beats static splitting); OpenMP parallelizes the independent frames inside each clip.
+Output log-power spectra are checksummed in memory — the checksum is identical across
+all configurations (−1.630e9), so every parallel schedule computes the same numbers.
+Validated frame-for-frame against a NumPy reference on sample clips.
+
+| Procs × threads | Wall time | Speedup | Throughput |
+|---|---|---|---|
+| 1 × 1 | 36.5 s | 1.0× | 281× realtime |
+| 1 × 16 | 5.90 s | 6.2× | 1,735× realtime |
+| 4 × 4 | 4.67 s | 7.8× | 2,191× realtime |
+| 8 × 2 | 4.52 s | **8.1×** | 2,265× realtime |
+
+The contrast with §5.2–5.3 is the project's central lesson: the SAME kernel on the SAME
+machine reaches 8.1× on batched independent transforms but only 3.2× inside one large
+transform — coarse-grained parallelism has no transposes to pay for and cache-sized
+working sets per frame. One core of this laptop sustains ~280 streams in realtime;
+16 workers prepare an hour of training features in ~1.6 s, i.e. a 1,000-hour ASR
+training corpus in under half an hour on one laptop, with MPI extending the same
+dispatcher across machines.
+
+### 5.8 Bonus row: a GPU library on the same signal
 
 cuFFT (via CuPy) on Colab's Tesla T4 transforms the same 2^24-point Urdu signal in
 **29.0 ms** (max rel. error vs numpy 4.4e-16) — 70× our sequential C and 22× our best

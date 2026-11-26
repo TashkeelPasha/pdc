@@ -16,6 +16,7 @@ speech) three ways, and measures where parallelism pays off:
 | Sequential baseline | `src/fft_seq.c` | none — iterative radix-2 Cooley–Tukey |
 | OpenMP | `src/fft_omp.c` | n/2 butterflies per stage split across threads |
 | Hybrid | `src/fft_hybrid_mpi.c` | Bailey four-step: MPI_Alltoall transposes between ranks, OpenMP across local row FFTs |
+| Spectrogram engine | `src/spectrogram_engine.c` | batched short-time FFTs over thousands of clips: MPI master-worker over files, OpenMP over frames (8.1× on the laptop, 2,265× realtime) |
 
 Data: [YODAS Urdu `ur000`](https://huggingface.co/datasets/espnet/yodas) (CC-BY-3.0) and
 Mozilla Common Voice Urdu (CC0). Raw audio is **not** committed — `tools/prepare_signal.py`

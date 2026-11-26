@@ -21,6 +21,9 @@ if ($LASTEXITCODE -ne 0) { $ok = $false }
 gcc -O3 -std=c11 -Wall -fopenmp "$PSScriptRoot\src\fft_hybrid_mpi.c" -I "$MpiInc" -L "$MpiLib" -lmsmpi -o "$PSScriptRoot\build\fft_hybrid.exe" -lm
 if ($LASTEXITCODE -ne 0) { $ok = $false }
 
+gcc -O3 -std=c11 -Wall -fopenmp "$PSScriptRoot\src\spectrogram_engine.c" -I "$MpiInc" -L "$MpiLib" -lmsmpi -o "$PSScriptRoot\build\spectrogram_engine.exe" -lm
+if ($LASTEXITCODE -ne 0) { $ok = $false }
+
 if ($ok) {
     Write-Output "Built build\fft_seq.exe, build\fft_omp.exe, build\fft_hybrid.exe"
     Write-Output "Verify:  python tools\check_fft.py 16"
