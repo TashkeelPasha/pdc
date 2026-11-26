@@ -90,10 +90,15 @@ Method: best of 3 repetitions (5 for the crossover), timing only the transform
 
 ### 5.1 Sequential baseline
 
-| Machine | 2^24 sequential FFT (best of 3) |
-|---|---|
-| Laptop (i7-13620H) | **1.98 s** |
-| Colab free VM | 4.95 s |
+| Machine | Input | Sequential FFT (best of 3) |
+|---|---|---|
+| Laptop (i7-13620H) | 2^24 (17.5 min Urdu speech) | **2.02 s** |
+| Laptop (i7-13620H) | 2^26 (70 min Urdu speech) | 8.29 s |
+| Colab free VM | 2^24 | 4.95 s |
+
+All laptop numbers below use the real Urdu signal. A full matrix was also run on a
+synthetic signal (archived in `results/*_synthetic.csv`): every cell matches within
+run-to-run noise, demonstrating that FFT runtime is input-independent.
 
 (NumPy's optimized library FFT takes ~1.0 s on the same laptop — a useful sanity bound:
 our from-scratch kernel is within 2× of a tuned library.)
@@ -102,14 +107,18 @@ our from-scratch kernel is within 2× of a tuned library.)
 
 | Threads | Best time | Speedup | Efficiency |
 |---|---|---|---|
-| seq (V1) | 1.982 s | 1.00× | — |
-| 1 | 2.309 s | 0.86× | 0.86 |
-| 2 | 1.356 s | 1.46× | 0.73 |
-| 4 | 0.917 s | 2.16× | 0.54 |
-| 8 | 0.839 s | 2.36× | 0.30 |
-| 10 | 0.796 s | 2.49× | 0.25 |
-| 12 | 0.789 s | 2.51× | 0.21 |
-| 16 | 0.790 s | **2.51×** | 0.16 |
+| seq (V1) | 2.020 s | 1.00× | — |
+| 1 | 2.294 s | 0.88× | 0.88 |
+| 2 | 1.351 s | 1.50× | 0.75 |
+| 4 | 0.934 s | 2.16× | 0.54 |
+| 8 | 0.844 s | 2.39× | 0.30 |
+| 10 | 0.800 s | 2.53× | 0.25 |
+| 12 | 0.812 s | 2.49× | 0.21 |
+| 16 | 0.798 s | **2.53×** | 0.16 |
+
+At 2^26 the same 16-thread configuration reaches 2.98 s vs 8.29 s sequential =
+**2.78×** — slightly better than at 2^24, since more work per stage amortizes the
+per-stage parallel-region overhead.
 
 Two effects dominate. First, **parallelization overhead is real and measured**: with
 one thread, V2 is slower than V1 (the flattened loop pays an integer div/mod per
@@ -122,17 +131,17 @@ DRAM; beyond the 10 physical cores the SMT siblings add almost nothing.
 
 | Procs × threads | Workers | Best time | Speedup | Efficiency | Comm share |
 |---|---|---|---|---|---|
-| 1 × 1 | 1 | 2.761 s | 0.72× | 0.72 | 25% |
-| 2 × 1 | 2 | 1.460 s | 1.36× | 0.68 | 30% |
-| 4 × 1 | 4 | 0.932 s | 2.13× | 0.53 | 36% |
-| 8 × 1 | 8 | 0.689 s | 2.88× | 0.36 | 47% |
-| 1 × 8 | 8 | 1.044 s | 1.90× | 0.24 | 58% |
-| 1 × 16 | 16 | 0.909 s | 2.18× | 0.14 | 64% |
-| 2 × 4 | 8 | 0.770 s | 2.57× | 0.32 | 42% |
-| 2 × 8 | 16 | 0.674 s | 2.94× | 0.18 | 47% |
-| **4 × 4** | 16 | **0.608 s** | **3.26×** | 0.20 | 45% |
+| 1 × 1 | 1 | 2.545 s | 0.79× | 0.79 | 23% |
+| 2 × 1 | 2 | 1.403 s | 1.44× | 0.72 | 28% |
+| 4 × 1 | 4 | 0.892 s | 2.26× | 0.57 | 37% |
+| 8 × 1 | 8 | 0.685 s | 2.95× | 0.37 | 46% |
+| 1 × 8 | 8 | 1.028 s | 1.97× | 0.25 | 59% |
+| 1 × 16 | 16 | 0.970 s | 2.08× | 0.13 | 66% |
+| 2 × 4 | 8 | 0.777 s | 2.60× | 0.33 | 45% |
+| 2 × 8 | 16 | 0.677 s | 2.98× | 0.19 | 46% |
+| **4 × 4** | 16 | **0.629 s** | **3.21×** | 0.20 | 46% |
 
-Three observations. (1) **The hybrid beats pure OpenMP** (3.26× vs 2.51×): the
+Three observations. (1) **The hybrid beats pure OpenMP** (3.21× vs 2.53×): the
 four-step's row FFTs walk contiguous 4096-point rows that fit in L2 cache, where V2's
 late stages stride across the whole 256 MiB array. (2) **Balanced procs × threads wins**
 — 4×4 beats both 8×1 (more ranks = more transpose traffic) and 1×16 (one rank's
@@ -145,6 +154,16 @@ The hybrid's printed communication share isolates the transposes. Even on one ma
 fraction of runtime — this is the memory traffic of pack → exchange → unpack. The
 four-step with P = 1 is also our "row-parallel" OpenMP variant, contrasting with V2's
 "butterfly-parallel" strategy.
+
+### 5.3b When the problem outgrows the machine (2^26)
+
+At 2^26 OpenMP still works (working set 1 GiB), but the hybrid needs **4 GiB** of
+buffers (data + transposed view + send + recv) on a laptop with 7.7 GB of RAM and
+~1.7 GB free: the 4×4 run took 10.7 s — slower than sequential — with 81–90% of the
+time in the exchange phase, because Windows was **paging the buffers to disk** during
+the transposes. This is the distributed-memory argument made concrete: beyond this
+size the four-step FFT needs more *machines*, not more threads — at 2^28 (4 GiB of
+raw data, 16 GiB of buffers) no single laptop in the group could even allocate it.
 
 ### 5.4 Control run: Colab's 2 vCPUs
 
@@ -191,7 +210,7 @@ threads across frames) is the industrially realistic use of this project's code.
 ### 5.7 Bonus row: a GPU library on the same signal
 
 cuFFT (via CuPy) on Colab's Tesla T4 transforms the same 2^24-point Urdu signal in
-**29.0 ms** (max rel. error vs numpy 4.4e-16) — 68× our sequential C and 21× our best
+**29.0 ms** (max rel. error vs numpy 4.4e-16) — 70× our sequential C and 22× our best
 hybrid run. This is not a like-for-like comparison (a decade-tuned vendor library on
 specialised hardware vs our from-scratch CPU code); it is the industry context: FFTs
 at scale run on GPUs, and the four-step structure we implemented — batched local FFTs
@@ -202,7 +221,7 @@ separated by transposes — is the same structure cuFFTMp uses across multiple G
 **Speedup / efficiency / Amdahl.** S(p) = T_seq/T_p, E(p) = S(p)/p, plotted in
 `results/`. From the measured OpenMP curve, the speedup ceiling of ~2.5× implies an
 effective serial-equivalent fraction of ~0.37 by Amdahl's 1/((1−f)+f/p) as p→∞ —
-but the hybrid's 3.26× on the same machine proves most of that "serial fraction" is
+but the hybrid's 3.21× on the same machine proves most of that "serial fraction" is
 really memory-bandwidth contention and cache-unfriendly strides, not inherently serial
 code: changing the access pattern (row FFTs) raised the ceiling without changing the
 arithmetic.
